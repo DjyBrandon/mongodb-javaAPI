@@ -51,7 +51,7 @@ public class rating {
             double avgRating = (Double) result.get("avgRating");
             String movieAvgRating = "电影编号：" + movieID + " 平均评分：" + avgRating + "\n";
             try {
-                bufferedWriterMethod("resources/MovieAvgRating.txt", movieAvgRating);
+                bufferedWriterMethod("results/MovieAvgRating.txt", movieAvgRating);
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
@@ -66,7 +66,7 @@ public class rating {
             int count = (int) Math.round((Double) result.get("userCount"));
             String userCount = "用户编号：" + userID + " 观看电影部数：" + count + "\n";
             try {
-                bufferedWriterMethod("resources/UserByMovieCount.txt", userCount);
+                bufferedWriterMethod("results/UserByMovieCount.txt", userCount);
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
@@ -81,7 +81,7 @@ public class rating {
             int count = (int) Math.round((Double) result.get("movieCount"));
             String movieCount = "电影编号：" + movieID + " 观看用户人数：" + count + "\n";
             try {
-                bufferedWriterMethod("resources/MovieByUserCount.txt", movieCount);
+                bufferedWriterMethod("results/MovieByUserCount.txt", movieCount);
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
