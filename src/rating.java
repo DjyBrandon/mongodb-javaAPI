@@ -6,9 +6,7 @@ import com.mongodb.client.model.Aggregates;
 import com.mongodb.client.model.Sorts;
 import org.bson.Document;
 
-import java.io.BufferedReader;
-import java.io.FileReader;
-import java.io.IOException;
+import java.io.*;
 import java.util.*;
 
 import static java.lang.Integer.parseInt;
@@ -16,11 +14,12 @@ import static java.lang.Integer.parseInt;
 
 /**
  * @package: src
- * @Description:
+ * @Description: 电影评分数据分析任务：电影平均评分，用户观看电影部数，电影观看人数
  * @author: Brandon
- * @date: 2023/4/10 15:43
+ * @date: 2023/4/30 10:37
  **/
 public class rating {
+
     // Name of the column for which data is to be obtained
     static String[] hear = {"userID", "movieID", "rating", "timestamp"};
 
@@ -32,21 +31,71 @@ public class rating {
         // 注： 如果数据库名不存在，会在第一次插入文档时创建
         MongoDatabase db = client.getDatabase("test");
         // 通过数库连接对象获取集合 mongoDatabase.getCollection(集合名称);
+        // 判断集合是否存在来导入数据
+        boolean isCollectionExists = db.listCollectionNames().into(new ArrayList()).contains("ratings");;
         MongoCollection<Document> collection = db.getCollection("ratings");
 
-        // 打印函数
-        Block<Document> printBlock = document -> {
-            HashMap map = new Gson().fromJson(document.toJson(), HashMap.class);
-            int movieID = (int) Math.round((Double) map.get("_id"));
-            double avgRating = (Double) map.get("avgRating");
-            System.out.println("电影编号：" + movieID + " 平均评分：" + avgRating);
+        // 批量插入数据
+        if (isCollectionExists == false) {
+            System.out.println("开始导入数据···");
+            insertMany(collection, "resources/rating.txt");
+        } else {
+            System.out.println("已导入数据，直接开始数据分析。");
+        }
+
+        // 打印电影平均评分函数
+        Block<Document> MovieAvgRatingBlock = document -> {
+            // 将分组聚合统计平均分结果写入HashMap集合result中
+            HashMap result = new Gson().fromJson(document.toJson(), HashMap.class);
+            int movieID = (int) Math.round((Double) result.get("_id"));
+            double avgRating = (Double) result.get("avgRating");
+            String movieAvgRating = "电影编号：" + movieID + " 平均评分：" + avgRating + "\n";
+            try {
+                bufferedWriterMethod("resources/MovieAvgRating.txt", movieAvgRating);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+            System.out.println(movieAvgRating);
         };
 
-        // 批量插入数据
-//        insertMany(collection, "resources/rating.txt");
+        // 打印用户观看电影部数函数
+        Block<Document> UserCountBlock = document -> {
+            // 将分组聚合统计用户观看电影部数结果写入HashMap集合result中
+            HashMap result = new Gson().fromJson(document.toJson(), HashMap.class);
+            int userID = (int) Math.round((Double) result.get("_id"));
+            int count = (int) Math.round((Double) result.get("userCount"));
+            String userCount = "用户编号：" + userID + " 观看电影部数：" + count + "\n";
+            try {
+                bufferedWriterMethod("resources/UserByMovieCount.txt", userCount);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+            System.out.println(userCount);
+        };
+
+        // 打印电影观看用户人数函数
+        Block<Document> MovieCountBlock = document -> {
+            // 将分组聚合统计电影观看用户人数结果写入HashMap集合result中
+            HashMap result = new Gson().fromJson(document.toJson(), HashMap.class);
+            int movieID = (int) Math.round((Double) result.get("_id"));
+            int count = (int) Math.round((Double) result.get("movieCount"));
+            String movieCount = "电影编号：" + movieID + " 观看用户人数：" + count + "\n";
+            try {
+                bufferedWriterMethod("resources/MovieByUserCount.txt", movieCount);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+            System.out.println(movieCount);
+        };
 
         // 查询每部电影用户平均评分
-        GroupAggregation(collection, printBlock, "$movieID");
+        MovieAvgRating(collection, MovieAvgRatingBlock, "$movieID");
+
+        // 用户观看电影部数
+        UserByMovieCount(collection, UserCountBlock, "$userID");
+
+        // 电影观看用户胡人数
+        MovieByUserCount(collection, MovieCountBlock, "$movieID");
 
         // 关闭连接
         client.close();
@@ -66,40 +115,72 @@ public class rating {
         BufferedReader br = new BufferedReader(fr);
         String line = "";
         int x = 0, y = 0;
+
+        // 这一行有数据就继续读取，知道行为空停止插入数据
         while ((line = br.readLine()) != null) {
             // 如果某一行数据分割后长度与指定的mongodb字段长度（hear中有4个字段）不匹配，则不插入这一条document
             if (line.split("::").length != hear.length) {
+                // y 值记录异常记录条数
                 y++;
                 continue;
             }
             document = new Document();
-            // 如果某一行数据分割后长度与指定的mongodb字段长度（hear中有4个字段）匹配，则插入这一条document
+            // 如果某一行数据分割后长度与指定的mongodb字段长度（hear中有4个字段）匹配，则插入这一条document，全部转换为int便于求平均评分
             for (int i = 0; i < line.split("::").length; i++) {
                 document.append(hear[i], parseInt(line.split("::")[i]));
             }
             documents.add(document);
             x++;
         }
+
         // 数据集中是否含有异常数据
         System.out.println("删除了" + y + "条异常数据");
         System.out.println("总共插入" + x + "条数据");
+        System.out.println("导入数据完成，可以开始数据分析。");
         collection.insertMany(documents);
         br.close();
     }
 
-    /*
-    分组聚合
-    */
-    public static void GroupAggregation(MongoCollection<Document> collection, Block<Document> printBlock, String id) {
-        // 分组聚合
-        // db.ratings.aggregate([{$group:{_id:"$movieID",ratingAvg:{$avg:"$rating"}}}])
+    // 分组聚合电影平均评分
+    // db.ratings.aggregate([{$group:{_id:"$movieID",avgRating:{$avg:"$rating"}}},{$sort:{"avgRating":-1}}])
+    public static void MovieAvgRating(MongoCollection<Document> collection, Block<Document> MovieAvgRatingBlock, String id) {
         collection.aggregate(
                 Arrays.asList(
                         // 求和（若想统计则将expression设置为1）
                         Aggregates.group(id, Accumulators.avg("avgRating", "$rating")),
                         Aggregates.sort(Sorts.descending("avgRating"))
                 )
-        ).forEach(printBlock);
+        ).forEach(MovieAvgRatingBlock);
     }
 
+    // 分组聚合用户观看电影部数
+    // db.ratings.aggregate([{$group:{_id:"$userID",userCount:{$sum:1}}},{$sort:{"userCount":-1}}])
+    public static void UserByMovieCount(MongoCollection<Document> collection, Block<Document> UserCountBlock, String id) {
+        collection.aggregate(
+                Arrays.asList(
+                        // 求和（若想统计则将expression设置为1）
+                        Aggregates.group(id, Accumulators.sum("userCount", 1)),
+                        Aggregates.sort(Sorts.descending("userCount"))
+                )
+        ).forEach(UserCountBlock);
+    }
+
+    // 分组聚合电影观看用户人数
+    // db.ratings.aggregate([{$group:{_id:"$movieID",movieCount:{$sum:1}}},{$sort:{"movieCount":-1}}])
+    public static void MovieByUserCount(MongoCollection<Document> collection, Block<Document> MovieCountBlock, String id) {
+        collection.aggregate(
+                Arrays.asList(
+                        // 求和（若想统计则将expression设置为1）
+                        Aggregates.group(id, Accumulators.sum("movieCount", 1)),
+                        Aggregates.sort(Sorts.descending("movieCount"))
+                )
+        ).forEach(MovieCountBlock);
+    }
+
+    // 将数据分析结果保存至HashMap键值对集合result后写入txt文件
+    public static void bufferedWriterMethod(String filepath, String content) throws IOException {
+        try (BufferedWriter bufferedWriter = new BufferedWriter(new FileWriter(filepath, true))) {
+            bufferedWriter.write(content);
+        }
+    }
 }
